@@ -71,7 +71,6 @@ void StepperDriver::step(int delayMs) {
         setCoils(halfStepPattern[_stepIndex]);
         _stepIndex = (_stepIndex + _direction + 8) % 8;
     }
-    delayMicroseconds(delayMs);
 }
 
 /**
@@ -193,7 +192,8 @@ void StepperDriver::stepAtSpeed(int steps, int rpm, bool forward) {
 void StepperDriver::stepForward(int steps, int delayMs) {
     setDirection(1);
     for (int i = 0; i < steps; i++) {
-        step(delayMs);
+        step();
+        delayMicroseconds(delayMs);
     }
 }
 
@@ -206,6 +206,7 @@ void StepperDriver::stepForward(int steps, int delayMs) {
 void StepperDriver::stepBackward(int steps, int delayMs) {
     setDirection(-1);
     for (int i = 0; i < steps; i++) {
-        step(delayMs);
+        step();
+        delayMicroseconds(delayMs);
     }
 }
