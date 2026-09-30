@@ -9,10 +9,11 @@
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <DNSServer.h>
+#include "esp_ota_ops.h"
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-IPAddress localIP(1, 1, 1, 1);
+IPAddress localIP(1, 2, 3, 4);
 
 StepperDriver stepper(5, 6, 7, 15);
 
@@ -299,27 +300,64 @@ void SetupWiFi(){
 
 #pragma endregion
 
+void MarkAppValid(){
+  //Rollback feature incase anything fails
+  if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+    Serial.println("App marked as valid.");
+  } else {
+    Serial.println("App was already valid or not in rollback state.");
+  }
+}
+
 //Function for setting up the OTA service (I would rather this thing sit on the shelf)
 void SetupOTA(){
 
-  ArduinoOTA.begin();
-  ArduinoOTA.setHostname("ESP32-S3-OTA");
-  //ArduinoOTA.setPassword(OTA_PASSWORD);
+  MarkAppValid();
 
+  ArduinoOTA.setHostname("ESP32-S3-OTA");
+  ArduinoOTA.setPort(3232);
+
+  Serial.print("ota adress: ");
+  Serial.println(ArduinoOTA.getHostname());
+
+  ArduinoOTA.onStart([]() {
+  Serial.println("Start updating...");
+  
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nUpdate finished.");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r\n", (progress * 100) / total);
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+
+  ArduinoOTA.begin();
 }
 
 void setup() {
 
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   //Setup Database and Settings
   SetupSettingsAndDatabase();
 
-  //Setup Stepper
-  SetupStepper();
-
   //Setup Wifi
   SetupWiFi();
+
+  SetupOTA();
+
+  //Setup Stepper
+  SetupStepper();
+  
+  MarkAppValid();
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
