@@ -18,64 +18,62 @@
             <button class="nav-btn" onclick="navigateTo('home')">🏠 Home</button>
         </div>
     </div>
-    <!-- I will eat this script if it does not work-->
-    <script>
-        let ws;
+        <!-- I will eat this script if it does not work-->
+        <!--<script src="common.js"></script>-->
+        <script>
+            let ws;
         
-        function BAWebsocket(){
-            ws = new WebSocket("ws://" + window.location.hostname + "/ws");
+            function BAWebsocket(){
+                ws = new WebSocket("ws://" + window.location.hostname + "/ws");
             
-            ws.onopen = function() {
-                console.log("Websocket Connected");
-                let page = '{"page": "wifi"}'
-                ws.send(page);
-                console.log("sending", page);
-            };
-            ws.onmessage = function(event){
-                let data = JSON.parse(event.data);
-                if ("ssid" in data){
-                    document.getElementById("ssid").value = data.ssid;
-                }
-                if ("password" in data){
-                    document.getElementById("password").value = data.password;
-                }
-            };
-        }
+                ws.onopen = function() {
+                    console.log("Websocket Connected");
+                    let page = '{"page": "wifi"}'
+                    ws.send(page);
+                    console.log("sending", page);
+                };
+                ws.onmessage = function(event){
+                    let data = JSON.parse(event.data);
+                    if ("ssid" in data){
+                        document.getElementById("ssid").value = data.ssid;
+                    }
+                    if ("password" in data){
+                        document.getElementById("password").value = data.password;
+                    }
+                };
+            }
 
-        function SendSettings() {
-            if(ws.readyState === WebSocket.OPEN){
-                let send = '{"wifi": "true",'
-                if (document.getElementById("ssid").value.trim()!==""){
-                    send = send +'"ssid": "' + document.getElementById("ssid").value + '"'
+            function SendSettings() {
+                if(ws.readyState === WebSocket.OPEN){
+                    let send = '{"wifi": "true",'
+                    if (document.getElementById("ssid").value.trim()!==""){
+                        send = send +'"ssid": "' + document.getElementById("ssid").value + '"'
+                    }
+                    if (document.getElementById("password").value.trim()!==""){
+                        send = send + ', ' + '"password": "' + document.getElementById("password").value + '"'
+                    }
+                    send = send + '}'
+                    ws.send(send);
+                    console.log("sending", send);
                 }
-                if (document.getElementById("password").value.trim()!==""){
-                    send = send + ', ' + '"password": "' + document.getElementById("password").value + '"'
+                else{
+                    console.log("Websocket is not open. Cannot send data");
                 }
-                send = send + '}'
-                ws.send(send);
-                console.log("sending", send);
-            }
-            else{
-                console.log("Websocket is not open. Cannot send data");
-            }
-        };
-        function LoadSettings() {
-            if(ws.readyState === WebSocket.OPEN){
-                let page = '{"page": "wifi"}'
-                ws.send(page);
-                console.log("sending", page);
-            }
-            else{
-                console.log("Websocket is not open. Cannot send data");
-            }
-        };
-        window.onload = function(){
-            console.log("Window loaded, connecting WebSocket...");
-            BAWebsocket();
-        };
-        function navigateTo(page) {
-            window.location.href = '/' + page;
-        }
-    </script>
-</body>
-</html>
+            };
+            function LoadSettings() {
+                if(ws.readyState === WebSocket.OPEN){
+                    let page = '{"page": "wifi"}'
+                    ws.send(page);
+                    console.log("sending", page);
+                }
+                else{
+                    console.log("Websocket is not open. Cannot send data");
+                }
+            };
+            window.onload = function(){
+                console.log("Window loaded, connecting WebSocket...");
+                BAWebsocket();
+            };
+        </script>
+    </body>
+    </html>

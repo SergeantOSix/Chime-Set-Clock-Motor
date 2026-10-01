@@ -15,7 +15,7 @@ AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 IPAddress localIP(1, 2, 3, 4);
 
-StepperDriver stepper(5, 6, 7, 15);
+StepperDriver stepper(4, 5, 6, 7);
 
 struct STEPPERVAR
 {
@@ -23,6 +23,41 @@ struct STEPPERVAR
   int32_t stepTime = 14648;
   int64_t stepCount = 0;
 }stepvar;
+
+#define HOURS_PER_CYCLE 12
+
+struct CLOCKO
+{
+  int64_t hours = 0;
+  int64_t minutes = 0;
+  int64_t seconds = 0;
+  int64_t milliseconds = 0;
+  int64_t microseconds = 0;
+};
+
+struct TIMEE
+{
+  int64_t nextCalculation = 0;
+  int64_t calculationTime = 111111;
+  int64_t currentUs = 0;
+  int64_t clockFaceUs = 0;
+  int64_t timeOffset = 0;
+  int64_t elapsedUs = 0;
+  int64_t dayUs = 0;
+  int64_t usPerCycle = 0;
+  CLOCKO clock;
+  CLOCKO uSPer;
+}timeO;
+
+void SetTime(CLOCKO tt);
+DynamicJsonDocument BuildTimeJason(CLOCKO foop);
+
+struct WEBDATA
+{
+  String lastStatus = "";
+  int64_t nextPageUpdate = 10000000;
+  int64_t pageUpdateTime = 1000000;
+}wpd;
 
 
 #pragma region Settings and Database
@@ -184,13 +219,10 @@ bool WiFiAPMode(){
 //A funtion for populating the main webpage
 void HTML_HomeSendOnLoad(){
   DynamicJsonDocument jsonDoc(1024);
-  //jsonDoc["name"] = rigSettings.rigName;
-  //jsonDoc["PWM"] = ESC.pulseWidth;
-  //jsonDoc["status"] = misc.lastStatus;
-  //jsonDoc["testType"] = TestToString(rigSettings.testType);
-  String Send;
-  serializeJson(jsonDoc, Send);
-  ws.textAll(Send);
+  jsonDoc = BuildTimeJason(timeO.clock);
+  char SendBuf[512];
+  serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
+  ws.textAll(SendBuf);
 }
 
 //A funtion for populating the main webpage
@@ -198,20 +230,57 @@ void HTML_WIFISendOnLoad(){
   DynamicJsonDocument jsonDoc(1024);
   jsonDoc["ssid"] = clockSettings.ssid;
   jsonDoc["password"] = clockSettings.passward;
-  String Send;
-  serializeJson(jsonDoc, Send);
-  ws.textAll(Send);
+  char SendBuf[512];
+  serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
+  ws.textAll(SendBuf);
 }
 
 //This use to be for just the webpage but the MQTT server comunicates the same way and therefor gets to be its own function
 void jsonDealings(String command_){
   DynamicJsonDocument jsonDoc(1024);
   DeserializationError error = deserializeJson(jsonDoc, command_);
-  Serial.println(command_);
+  //Serial.println(command_);
   if(jsonDoc.containsKey("command")){
     String command = jsonDoc["command"];
-    if((command == "Quiet")){
-      //Command Code Here-
+    if((command == "setTime")){
+      if(jsonDoc.containsKey("currentTime")){
+            DynamicJsonDocument t1m3(256);
+            String wapwap = jsonDoc["currentTime"];
+            //Serial.println(wapwap);
+            DeserializationError error = deserializeJson(t1m3, wapwap);
+            if(error){
+              Serial.println(F("Failed to deserialize currentTime"));
+              return;
+            }
+            CLOCKO tmptime;
+            if(t1m3.containsKey("hours")){
+              int64_t temp = t1m3["hours"];
+              //Hard Code for 12 hour time. I know its bad but it works for now
+              temp = temp -1;
+              if(temp > 11) temp = 11;
+              else if(temp < 0) temp = 0;
+              tmptime.hours = temp;
+            }
+            if(t1m3.containsKey("minutes")){
+              int64_t temp = t1m3["minutes"];
+              tmptime.minutes = temp;
+            }
+            if(t1m3.containsKey("seconds")){
+              int64_t temp = t1m3["seconds"];
+              tmptime.seconds = temp;
+            }
+            if(t1m3.containsKey("milliseconds")){
+              int64_t temp = t1m3["milliseconds"];
+              tmptime.milliseconds = temp;
+            }
+            if(t1m3.containsKey("microseconds")){
+              int64_t temp = t1m3["microseconds"];
+              tmptime.microseconds = temp;
+            }
+
+            SetTime(tmptime);
+
+      }
     }
   }
   else if(jsonDoc.containsKey("page")){
@@ -248,6 +317,7 @@ void OnWebsockedEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
   else if (type == WS_EVT_DATA){
     //OnWebsockedMessage(arg, data, len);
     String receivedJson = String((char*)data).substring(0,len);
+    Serial.println(receivedJson);
     jsonDealings(receivedJson);
   }
   
@@ -287,6 +357,7 @@ void SetupWiFi(){
   server.serveStatic("/home", FILESYSTEM, "/home.html").setCacheControl("max-age=600");
   server.serveStatic("/wifi", FILESYSTEM, "/wifi.html").setCacheControl("max-age=600");
   server.serveStatic("/styles.css", FILESYSTEM, "/styles.css").setCacheControl("max-age=600");
+  server.serveStatic("/common.js", FILESYSTEM, "/common.js").setCacheControl("max-age=600");
 
   // This guy is going to be for updating the sensor value
   // At some point I am going to want to swap this out for MQTT but I think I'm going to stick with websokets untill we get a server up and running
@@ -300,6 +371,7 @@ void SetupWiFi(){
 
 #pragma endregion
 
+#pragma region OTA
 void MarkAppValid(){
   //Rollback feature incase anything fails
   if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
@@ -312,8 +384,6 @@ void MarkAppValid(){
 //Function for setting up the OTA service (I would rather this thing sit on the shelf)
 void SetupOTA(){
 
-  MarkAppValid();
-
   ArduinoOTA.setHostname("ESP32-S3-OTA");
   ArduinoOTA.setPort(3232);
 
@@ -322,13 +392,12 @@ void SetupOTA(){
 
   ArduinoOTA.onStart([]() {
   Serial.println("Start updating...");
-  
   });
   ArduinoOTA.onEnd([]() {
     Serial.println("\nUpdate finished.");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r\n", (progress * 100) / total);
+    Serial.printf("Progress: %u%%\r", (progress * 100) / total);
   });
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("Error[%u]: ", error);
@@ -342,9 +411,43 @@ void SetupOTA(){
   ArduinoOTA.begin();
 }
 
+#pragma endregion
+
+#pragma region Time
+
+DynamicJsonDocument BuildTimeJason(CLOCKO foop){
+  DynamicJsonDocument jsonDoc(1024);
+  jsonDoc["hour"] = foop.hours + 1;
+  jsonDoc["minutes"] = foop.minutes;
+  jsonDoc["seconds"] = foop.seconds;
+  jsonDoc["milliseconds"] = foop.milliseconds;
+  jsonDoc["microseconds"] = foop.microseconds;
+  return jsonDoc;
+}
+
+//Function for going from 
+int64_t CalculateUs(CLOCKO tt){
+  int64_t currentTimeinUs = 0;
+  currentTimeinUs += tt.hours * timeO.uSPer.hours;
+  currentTimeinUs += tt.minutes * timeO.uSPer.minutes;
+  currentTimeinUs += tt.seconds * timeO.uSPer.seconds;
+  currentTimeinUs += tt.milliseconds * timeO.uSPer.milliseconds;
+  currentTimeinUs += tt.microseconds * timeO.uSPer.microseconds;
+  return currentTimeinUs;
+}
+//This function should calculate and set the offset in order
+void SetTime(CLOCKO tt){
+  timeO.timeOffset = CalculateUs(tt) - timeO.currentUs;
+}
+
+#pragma endregion
+
+#pragma region Setup and main loop
 void setup() {
 
   Serial.begin(115200);
+
+  MarkAppValid();
 
   //Setup Database and Settings
   SetupSettingsAndDatabase();
@@ -357,21 +460,69 @@ void setup() {
   //Setup Stepper
   SetupStepper();
   
+  //OTA App mark
   MarkAppValid();
+
+  //Clock Calculation (hours per cyle * minutes per hour * seconds per minute * ms per second * us per ms)
+  timeO.usPerCycle = int64_t(HOURS_PER_CYCLE * 60 * 60 * 1000) * int64_t(1000);
+  timeO.uSPer.hours = int64_t(60 * 60 * 1000) * int64_t(1000);
+  timeO.uSPer.minutes = 60 * 1000 * 1000;
+  timeO.uSPer.seconds = 1000 * 1000;
+  timeO.uSPer.milliseconds = 1000;
+  timeO.uSPer.microseconds = 1;
+
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
 void loop() {
-  int64_t currentUs = esp_timer_get_time();
+  timeO.currentUs = esp_timer_get_time();
+
+  
 
   //Before all else, Make sure to tick the stepper
-  if((stepvar.nextStep - currentUs) <= 0){
+  if((stepvar.nextStep - timeO.currentUs) <= 0){
     stepvar.nextStep += stepvar.stepTime;
-    stepper.step();
     stepvar.stepCount++;
+    stepper.step();
   }
   else{
     //Upgrades people! Upgrades!!! ＼(｀0´)／
     ArduinoOTA.handle();
+
+    //Clock Calculations
+    if((timeO.nextCalculation - timeO.currentUs) <= 0){
+      timeO.nextCalculation += timeO.calculationTime;
+      // Calculate elapsed time since start
+      timeO.elapsedUs = timeO.currentUs + timeO.timeOffset;
+      // Calculate remainder within 24 hours
+    
+      timeO.dayUs = timeO.elapsedUs % timeO.usPerCycle;
+      int64_t remainder = timeO.dayUs;
+
+      timeO.clock.hours = remainder / timeO.uSPer.hours;
+      remainder = remainder % timeO.uSPer.hours;
+
+      timeO.clock.minutes = remainder / timeO.uSPer.minutes;
+      remainder = remainder % timeO.uSPer.minutes;
+
+      timeO.clock.seconds = remainder / timeO.uSPer.seconds;
+      remainder = remainder % timeO.uSPer.seconds;
+
+      timeO.clock.milliseconds = remainder / timeO.uSPer.milliseconds;
+      remainder = remainder % timeO.uSPer.milliseconds;
+
+      timeO.clock.microseconds = remainder / timeO.uSPer.microseconds;
+      remainder = remainder % timeO.uSPer.microseconds;
+    }
+
+    //page update call Currently just sends the clock every second
+    if((wpd.nextPageUpdate - timeO.currentUs) <= 0){
+      wpd.nextPageUpdate += wpd.pageUpdateTime;
+      String Send;
+      serializeJson(BuildTimeJason(timeO.clock), Send);
+      ws.textAll(Send);
+    }
   }
 }
+
+#pragma endregion

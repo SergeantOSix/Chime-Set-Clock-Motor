@@ -56,6 +56,7 @@ h1 {
     font-size: 1.5em;
     color: #00cc6a;
     margin-top: 10px;
+    display: none;
 }
 
 .status {
@@ -228,6 +229,72 @@ h1 {
     background: rgba(0, 255, 136, 0.3);
 }
 
+/* Dialog styles */
+.dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.dialog-content {
+    background: #16213e;
+    border: 2px solid #00ff88;
+    border-radius: 10px;
+    padding: 30px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 0 20px #00ff88;
+}
+
+.dialog-content h3 {
+    color: #00ff88;
+    text-align: center;
+    margin-bottom: 20px;
+    text-shadow: 0 0 10px #00ff88;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    color: #00ff88;
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 10px;
+    background: #0f3460;
+    border: 1px solid #00ff88;
+    border-radius: 5px;
+    color: #00ff88;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.form-group input:focus {
+    outline: none;
+    box-shadow: 0 0 10px #00ff88;
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    justify-content: center;
+}
+
+/* Footer */
 .footer {
     margin-top: 30px;
     color: #666;

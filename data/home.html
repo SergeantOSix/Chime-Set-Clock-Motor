@@ -28,7 +28,38 @@
                 <h3>⬇️ Time Settings</h3>
                 <button class="btn" onclick="sendCommand('increment')">▲ Increment</button>
                 <button class="btn" onclick="sendCommand('decrement')">▼ Decrement</button>
-                <button class="btn" onclick="sendCommand('set')">⚙ Set Time</button>
+                <button class="btn" onclick="openSetTimeDialog()">⚙ Set Time</button>
+            </div>
+            
+            <!-- Set Time Dialog -->
+            <div id="setTimeDialog" class="dialog" style="display: none;">
+                <div class="dialog-content">
+                    <h3>⚙ Set Time</h3>
+                    <div class="form-group">
+                        <label for="setHours">Hours:</label>
+                        <input type="number" id="setHours" min="0" max="23" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="setMinutes">Minutes:</label>
+                        <input type="number" id="setMinutes" min="0" max="59" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="setSeconds">Seconds:</label>
+                        <input type="number" id="setSeconds" min="0" max="59" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="setMilliseconds">Milliseconds:</label>
+                        <input type="number" id="setMilliseconds" min="0" max="999" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="setMicroseconds">Microseconds:</label>
+                        <input type="number" id="setMicroseconds" min="0" max="999999" value="0">
+                    </div>
+                    <div class="dialog-buttons">
+                        <button class="btn btn-primary" onclick="confirmSetTime()">Set Time</button>
+                        <button class="btn" onclick="closeSetTimeDialog()">Cancel</button>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -57,134 +88,6 @@
         </div>
     </div>
     
-    <script>
-        let ws;
-        let isConnected = false;
-        
-        function connectWebSocket() {
-            ws = new WebSocket("ws://" + window.location.hostname + "/ws");
-            
-            ws.onopen = function() {
-                isConnected = true;
-                updateStatus(true);
-                console.log("WebSocket Connected");
-                sendPageRequest();
-            };
-            
-            ws.onmessage = function(event) {
-                try {
-                    let data = JSON.parse(event.data);
-                    handleMessage(data);
-                } catch (e) {
-                    console.log("Error parsing message:", e);
-                }
-            };
-            
-            ws.onclose = function() {
-                isConnected = false;
-                updateStatus(false);
-                console.log("WebSocket Disconnected");
-            };
-            
-            ws.onerror = function(error) {
-                console.log("WebSocket Error:", error);
-            };
-        }
-        
-        function handleMessage(data) {
-            if ("time" in data) {
-                updateTime(data.time);
-            }
-            if ("date" in data) {
-                updateDate(data.date);
-            }
-            if ("status" in data) {
-                updateMotorStatus(data.status);
-            }
-            if ("connection" in data) {
-                updateConnectionStatus(data.connection);
-            }
-        }
-        
-        function updateTime(time) {
-            const hours = String(time.getHours()).padStart(2, '0');
-            const minutes = String(time.getMinutes()).padStart(2, '0');
-            const seconds = String(time.getSeconds()).padStart(2, '0');
-            document.getElementById('timeDisplay').textContent = `${hours}:${minutes}:${seconds}`;
-        }
-        
-        function updateDate(date) {
-            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-            document.getElementById('dateDisplay').textContent = `${days[date.day]} ${date.month} ${date.dayOfMonth}, ${date.year}`;
-        }
-        
-        function updateMotorStatus(status) {
-            document.getElementById('motorStatus').textContent = status;
-        }
-        
-        function updateConnectionStatus(connected) {
-            const statusEl = document.getElementById('statusDisplay');
-            const connStatusEl = document.getElementById('connectionStatus');
-            
-            if (connected) {
-                statusEl.className = 'status connected';
-                statusEl.textContent = 'Connected';
-                connStatusEl.textContent = 'Connected';
-            } else {
-                statusEl.className = 'status disconnected';
-                statusEl.textContent = 'Disconnected';
-                connStatusEl.textContent = 'Disconnected';
-            }
-        }
-        
-        function updateStatus(connected) {
-            const statusEl = document.getElementById('statusDisplay');
-            if (connected) {
-                statusEl.className = 'status connected';
-                statusEl.textContent = 'Connected';
-            } else {
-                statusEl.className = 'status disconnected';
-                statusEl.textContent = 'Disconnected';
-            }
-        }
-        
-        function sendCommand(command) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                const message = { command: command };
-                ws.send(JSON.stringify(message));
-                console.log("Command sent:", command);
-            } else {
-                alert("Not connected to ESP32. Please check WiFi settings.");
-            }
-        }
-        
-        function sendPageRequest() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                const message = { page: "home" };
-                ws.send(JSON.stringify(message));
-            }
-        }
-        
-        function navigateTo(page) {
-            window.location.href = '/' + page;
-        }
-        
-        function updateLastUpdate() {
-            const now = new Date();
-            document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
-        }
-        
-        window.onload = function() {
-            console.log("Window loaded, connecting WebSocket...");
-            connectWebSocket();
-            
-            // Update last update time every minute
-            setInterval(updateLastUpdate, 60000);
-            
-            // Request current time on connection
-            setTimeout(sendPageRequest, 1000);
-        };
-    </script>
+    <script src="common.js"></script>
 </body>
 </html>
