@@ -20,11 +20,13 @@ StepperDriver stepper(4, 5, 6, 7);
 struct STEPPERVAR
 {
   int64_t nextStep = 10000000;
-  int32_t stepTime = 14648;
+  int32_t stepTime = 4883;
+  int64_t doubleTime = 2000;
   int64_t stepCount = 0;
 }stepvar;
 
 #define HOURS_PER_CYCLE 12
+#define FACE_SET_TIME_PERCENTAGE .98
 
 struct CLOCKO
 {
@@ -38,19 +40,23 @@ struct CLOCKO
 struct TIMEE
 {
   int64_t nextCalculation = 0;
-  int64_t calculationTime = 111111;
+  int64_t calculationTime = 10000;
   int64_t currentUs = 0;
   int64_t clockFaceUs = 0;
   int64_t timeOffset = 0;
   int64_t elapsedUs = 0;
   int64_t dayUs = 0;
   int64_t usPerCycle = 0;
+  int64_t maxFaceSetTime = 0;
+  int64_t minFaceSetTime = 0;
   CLOCKO clock;
   CLOCKO uSPer;
 }timeO;
 
 void SetTime(CLOCKO tt);
 DynamicJsonDocument BuildTimeJason(CLOCKO foop);
+int64_t CalculateUs(CLOCKO tt);
+CLOCKO CalculateClock(int64_t tt);
 
 struct WEBDATA
 {
@@ -135,7 +141,7 @@ void SetupSettingsAndDatabase(){
 void SetupStepper(){
   stepper.enable();
   stepper.setStepMode(1);
-  stepper.setDirection(-1);
+  stepper.setDirection(1);
 }
 
 #pragma region Wifi and Server
@@ -219,9 +225,11 @@ bool WiFiAPMode(){
 //A funtion for populating the main webpage
 void HTML_HomeSendOnLoad(){
   DynamicJsonDocument jsonDoc(1024);
-  jsonDoc = BuildTimeJason(timeO.clock);
+  jsonDoc["timeClock"] = BuildTimeJason(timeO.clock);
+  jsonDoc["faceClock"] = BuildTimeJason(CalculateClock(timeO.clockFaceUs));
   char SendBuf[512];
   serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
+  Serial.println(SendBuf);
   ws.textAll(SendBuf);
 }
 
@@ -235,6 +243,35 @@ void HTML_WIFISendOnLoad(){
   ws.textAll(SendBuf);
 }
 
+CLOCKO ClockDecoder(DynamicJsonDocument jsonTime){
+  CLOCKO tmptime;
+  if(jsonTime.containsKey("hours")){
+    int64_t temp = jsonTime["hours"];
+    //Hard Code for 12 hour time. I know its bad but it works for now
+    temp = temp -1;
+    if(temp > 11) temp = 11;
+    else if(temp < 0) temp = 0;
+    tmptime.hours = temp;
+  }
+  if(jsonTime.containsKey("minutes")){
+    int64_t temp = jsonTime["minutes"];
+    tmptime.minutes = temp;
+  }
+  if(jsonTime.containsKey("seconds")){
+    int64_t temp = jsonTime["seconds"];
+    tmptime.seconds = temp;
+  }
+  if(jsonTime.containsKey("milliseconds")){
+    int64_t temp = jsonTime["milliseconds"];
+    tmptime.milliseconds = temp;
+  }
+  if(jsonTime.containsKey("microseconds")){
+    int64_t temp = jsonTime["microseconds"];
+    tmptime.microseconds = temp;
+  }
+  return tmptime;
+}
+
 //This use to be for just the webpage but the MQTT server comunicates the same way and therefor gets to be its own function
 void jsonDealings(String command_){
   DynamicJsonDocument jsonDoc(1024);
@@ -244,42 +281,28 @@ void jsonDealings(String command_){
     String command = jsonDoc["command"];
     if((command == "setTime")){
       if(jsonDoc.containsKey("currentTime")){
-            DynamicJsonDocument t1m3(256);
-            String wapwap = jsonDoc["currentTime"];
-            //Serial.println(wapwap);
-            DeserializationError error = deserializeJson(t1m3, wapwap);
-            if(error){
-              Serial.println(F("Failed to deserialize currentTime"));
-              return;
-            }
-            CLOCKO tmptime;
-            if(t1m3.containsKey("hours")){
-              int64_t temp = t1m3["hours"];
-              //Hard Code for 12 hour time. I know its bad but it works for now
-              temp = temp -1;
-              if(temp > 11) temp = 11;
-              else if(temp < 0) temp = 0;
-              tmptime.hours = temp;
-            }
-            if(t1m3.containsKey("minutes")){
-              int64_t temp = t1m3["minutes"];
-              tmptime.minutes = temp;
-            }
-            if(t1m3.containsKey("seconds")){
-              int64_t temp = t1m3["seconds"];
-              tmptime.seconds = temp;
-            }
-            if(t1m3.containsKey("milliseconds")){
-              int64_t temp = t1m3["milliseconds"];
-              tmptime.milliseconds = temp;
-            }
-            if(t1m3.containsKey("microseconds")){
-              int64_t temp = t1m3["microseconds"];
-              tmptime.microseconds = temp;
-            }
-
-            SetTime(tmptime);
-
+        DynamicJsonDocument t1m3(256);
+        String wapwap = jsonDoc["currentTime"];
+        //Serial.println(wapwap);
+        DeserializationError error = deserializeJson(t1m3, wapwap);
+        if(error){
+          Serial.println(F("Failed to deserialize currentTime"));
+          return;
+        }
+        SetTime(ClockDecoder(t1m3));
+      }
+    }
+    if((command == "setClockFace")){
+      if(jsonDoc.containsKey("currentTime")){
+        DynamicJsonDocument t1m3(256);
+        String wapwap = jsonDoc["currentTime"];
+        //Serial.println(wapwap);
+        DeserializationError error = deserializeJson(t1m3, wapwap);
+        if(error){
+          Serial.println(F("Failed to deserialize currentTime"));
+          return;
+        }
+        timeO.clockFaceUs = CalculateUs(ClockDecoder(t1m3));
       }
     }
   }
@@ -435,9 +458,49 @@ int64_t CalculateUs(CLOCKO tt){
   currentTimeinUs += tt.microseconds * timeO.uSPer.microseconds;
   return currentTimeinUs;
 }
+
+CLOCKO CalculateClock(int64_t tt){
+  CLOCKO boof;
+  int64_t remainder = tt % timeO.usPerCycle;;
+
+  boof.hours = remainder / timeO.uSPer.hours;
+  remainder = remainder % timeO.uSPer.hours;
+
+  boof.minutes = remainder / timeO.uSPer.minutes;
+  remainder = remainder % timeO.uSPer.minutes;
+
+  boof.seconds = remainder / timeO.uSPer.seconds;
+  remainder = remainder % timeO.uSPer.seconds;
+
+  boof.milliseconds = remainder / timeO.uSPer.milliseconds;
+  remainder = remainder % timeO.uSPer.milliseconds;
+
+  boof.microseconds = remainder / timeO.uSPer.microseconds;
+  remainder = remainder % timeO.uSPer.microseconds;
+
+  return boof;
+}
+
 //This function should calculate and set the offset in order
 void SetTime(CLOCKO tt){
   timeO.timeOffset = CalculateUs(tt) - timeO.currentUs;
+}
+
+//This function is to prevent the esp to think that the clock is desynced even when
+//because these numbers are looping, the max they can be appart is one half of the max value
+int64_t wrappedDifference(int64_t a, int64_t b, int64_t max) {
+  int64_t diff = a - b;
+
+  if(abs(diff) > (max / 2)){
+    // Handle wrap-around
+    if (diff > 0) {
+      diff = diff - max;      // Positive: make it negative
+    } else {
+      diff = -max - diff;     // Negative: subtract max from already negative value
+    }
+  }
+  
+  return diff;
 }
 
 #pragma endregion
@@ -471,6 +534,10 @@ void setup() {
   timeO.uSPer.milliseconds = 1000;
   timeO.uSPer.microseconds = 1;
 
+  //Clock Calculation Min and Max Face Set Time
+  timeO.maxFaceSetTime = float(timeO.usPerCycle) * FACE_SET_TIME_PERCENTAGE;
+  timeO.minFaceSetTime = float(timeO.usPerCycle) * (1 - FACE_SET_TIME_PERCENTAGE);
+
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
@@ -481,9 +548,18 @@ void loop() {
 
   //Before all else, Make sure to tick the stepper
   if((stepvar.nextStep - timeO.currentUs) <= 0){
-    stepvar.nextStep += stepvar.stepTime;
     stepvar.stepCount++;
     stepper.step();
+
+    //This is a check that should super speed the clock face till it is close enough to the set time
+    if (abs(wrappedDifference(timeO.clockFaceUs, timeO.dayUs, timeO.usPerCycle)) <= 100000){
+      stepvar.nextStep += stepvar.stepTime;
+    }
+    else{
+      stepvar.nextStep += stepvar.doubleTime;
+    }
+
+    timeO.clockFaceUs += stepvar.stepTime;
   }
   else{
     //Upgrades people! Upgrades!!! ＼(｀0´)／
@@ -518,9 +594,13 @@ void loop() {
     //page update call Currently just sends the clock every second
     if((wpd.nextPageUpdate - timeO.currentUs) <= 0){
       wpd.nextPageUpdate += wpd.pageUpdateTime;
-      String Send;
-      serializeJson(BuildTimeJason(timeO.clock), Send);
-      ws.textAll(Send);
+      DynamicJsonDocument jsonDoc(1024);
+      jsonDoc["timeClock"] = BuildTimeJason(timeO.clock);
+      jsonDoc["faceClock"] = BuildTimeJason(CalculateClock(timeO.clockFaceUs));
+      char SendBuf[512];
+      serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
+      //Serial.println(SendBuf);
+      ws.textAll(SendBuf);
     }
   }
 }

@@ -4,6 +4,13 @@ let reconnectAttempts = 0;
 let maxReconnectAttempts = 10;
 let reconnectDelay = 2000; // Initial delay in milliseconds
 
+// Time prediction variables - separate for each clock
+let lastUpdateTime = null;
+let lastTimeValues = null;
+let faceClockLastUpdateTime = null;
+let faceClockLastTimeValues = null;
+let timePredictionInterval = null;
+
 // Connect to WebSocket
 function connectWebSocket() {
     ws = new WebSocket("ws://" + window.location.hostname + "/ws");
@@ -13,31 +20,35 @@ function connectWebSocket() {
         reconnectAttempts = 0;
         updateStatus(true);
         sendPageRequest();
-    };
-    
-    ws.onmessage = function(event) {
-        try {
-            let data = JSON.parse(event.data);
-            handleMessage(data);
-        } catch (e) {
-            console.error("Error parsing message:", e);
-        }
-    };
-    
-    ws.onclose = function() {
-        isConnected = false;
-        updateStatus(false);
         
-        // Attempt to reconnect if we haven't exceeded max attempts
-        if (reconnectAttempts < maxReconnectAttempts) {
-            reconnectAttempts++;
+            // Start time prediction interval
+            startTimePrediction();
+        };
+    
+        ws.onmessage = function(event) {
+            try {
+                let data = JSON.parse(event.data);
+                handleMessage(data);
+            } catch (e) {
+                console.error("Error parsing message:", e);
+            }
+        };
+    
+        ws.onclose = function() {
+            isConnected = false;
+            updateStatus(false);
+            stopTimePrediction();
+        
+            // Attempt to reconnect if we haven't exceeded max attempts
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
             
-            // Exponential backoff: increase delay with each attempt
-            reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Max 30 seconds
+                // Exponential backoff: increase delay with each attempt
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Max 30 seconds
             
-            setTimeout(connectWebSocket, reconnectDelay);
-        }
-    };
+                setTimeout(connectWebSocket, reconnectDelay);
+            }
+        };
     
     ws.onerror = function(error) {
         console.error("WebSocket Error:", error);
@@ -46,7 +57,13 @@ function connectWebSocket() {
 
 // Handle incoming messages
 function handleMessage(data) {
-    // Handle clock JSON format (new format) - check for time-related fields
+    // Handle new protocol format with timeClock and faceClock objects
+    if ("timeClock" in data || "faceClock" in data) {
+        handleNewProtocol(data);
+        return;
+    }
+    
+    // Handle clock JSON format (old format) - check for time-related fields
     if ("hour" in data || "minute" in data || "second" in data || "Hour" in data || "Minute" in data || "Second" in data || "minutes" in data || "Minutes" in data) {
         updateClockFromJSON(data);
         return;
@@ -71,33 +88,186 @@ function handleMessage(data) {
     }
 }
 
-// Update clock from JSON object
-function updateClockFromJSON(clockData) {
-    // Handle different possible field names - try multiple variations
-    const hour = clockData.hour !== undefined ? clockData.hour : clockData.Hour || clockData.hour || 0;
-    const minutes = clockData.minutes !== undefined ? clockData.minutes : clockData.Minutes || clockData.minute || clockData.Minute || clockData.minutes || clockData.Minutes || clockData.minutes || 0;
-    const seconds = clockData.seconds !== undefined ? clockData.seconds : clockData.Seconds || clockData.second || clockData.Second || clockData.seconds || 0;
-    const milliseconds = clockData.milliseconds !== undefined ? clockData.milliseconds : clockData.Milliseconds || clockData.millisecond || clockData.Millisecond || clockData.milliseconds || 0;
-    const microseconds = clockData.microseconds !== undefined ? clockData.microseconds : clockData.Microseconds || clockData.microsecond || clockData.Microsecond || clockData.microseconds || 0;
+// Handle new protocol format with timeClock and faceClock
+function handleNewProtocol(data) {
+    const timeClockData = data.timeClock || data.TimeClock;
+    const faceClockData = data.faceClock || data.FaceClock;
     
-    const hours = String(hour).padStart(2, '0');
+    if (timeClockData) {
+        updateClockFromJSON(timeClockData, 'timeClock');
+        // Store last update time and values for prediction
+        lastUpdateTime = new Date();
+        lastTimeValues = {
+                hour: timeClockData.hour,
+            minutes: timeClockData.minutes,
+            seconds: timeClockData.seconds,
+            milliseconds: timeClockData.milliseconds,
+            microseconds: timeClockData.microseconds
+        };
+    }
+    
+    if (faceClockData) {
+        updateClockFromJSON(faceClockData, 'faceClock');
+            // Store separate last update time and values for faceClock prediction
+            faceClockLastUpdateTime = new Date();
+            faceClockLastTimeValues = {
+                hour: faceClockData.hour,
+                minutes: faceClockData.minutes,
+                seconds: faceClockData.seconds,
+                milliseconds: faceClockData.milliseconds,
+                microseconds: faceClockData.microseconds
+            };
+        }
+    }
+
+// Start time prediction interval
+function startTimePrediction() {
+    if (timePredictionInterval) {
+        clearInterval(timePredictionInterval);
+    }
+    
+    timePredictionInterval = setInterval(function() {
+        if (isConnected && lastTimeValues) {
+            updatePredictedClock();
+        }
+        if (isConnected && faceClockLastTimeValues) {
+            updatePredictedFaceClock();
+        }
+    }, 50); // Update every 50ms
+}
+
+// Stop time prediction interval
+function stopTimePrediction() {
+    if (timePredictionInterval) {
+        clearInterval(timePredictionInterval);
+        timePredictionInterval = null;
+    }
+}
+
+// Update predicted clock based on last known values
+function updatePredictedClock() {
+    if (!lastTimeValues) return;
+    
+    const now = new Date();
+    const elapsedMs = now.getTime() - lastUpdateTime.getTime();
+    
+    // Calculate predicted time based on elapsed time
+    const predicted = {
+        hour: lastTimeValues.hour,
+        minutes: lastTimeValues.minutes,
+        seconds: lastTimeValues.seconds,
+            milliseconds: elapsedMs % 1000, // Use raw elapsed milliseconds
+        microseconds: 0   // Don't predict microseconds
+    };
+    
+    // Calculate total elapsed seconds (use integer division to avoid floating point issues)
+        const totalSeconds = Math.floor(elapsedMs / 1000);
+    
+    // Add elapsed seconds to current time
+    let newSeconds = predicted.seconds + totalSeconds;
+    let carry = Math.floor(newSeconds / 60);
+    predicted.seconds = newSeconds % 60;
+    predicted.minutes += carry;
+    
+    // Handle minute rollover
+    carry = Math.floor(predicted.minutes / 60);
+    predicted.minutes = predicted.minutes % 60;
+        predicted.hour += carry;
+    
+        // Handle hour rollover (12-hour format for analog clock)
+        carry = Math.floor(predicted.hour / 24);
+        predicted.hour = predicted.hour % 24;
+        // Convert to 12-hour format
+        if (predicted.hour === 0) {
+            predicted.hour = 12;
+        } else if (predicted.hour > 12) {
+            predicted.hour = predicted.hour - 12;
+        }
+    
+        // Update display
+        updateClockFromJSON(predicted, 'timeClock');
+    }
+
+    // Update predicted face clock based on last known values
+    function updatePredictedFaceClock() {
+        if (!faceClockLastTimeValues) return;
+    
+        const now = new Date();
+        const elapsedMs = now.getTime() - faceClockLastUpdateTime.getTime();
+    
+        // Calculate predicted time based on elapsed time
+        const predicted = {
+            hour: faceClockLastTimeValues.hour,
+            minutes: faceClockLastTimeValues.minutes,
+            seconds: faceClockLastTimeValues.seconds,
+            milliseconds: elapsedMs % 1000, // Use raw elapsed milliseconds
+            microseconds: 0   // Don't predict microseconds
+        };
+    
+        // Calculate total elapsed seconds (use integer division to avoid floating point issues)
+        const totalSeconds = Math.floor(elapsedMs / 1000);
+    
+        // Add elapsed seconds to current time
+        let newSeconds = predicted.seconds + totalSeconds;
+        let carry = Math.floor(newSeconds / 60);
+        predicted.seconds = newSeconds % 60;
+        predicted.minutes += carry;
+    
+        // Handle minute rollover
+        carry = Math.floor(predicted.minutes / 60);
+        predicted.minutes = predicted.minutes % 60;
+        predicted.hour += carry;
+    
+        // Handle hour rollover (12-hour format for analog clock)
+        carry = Math.floor(predicted.hour / 24);
+        predicted.hour = predicted.hour % 24;
+        // Convert to 12-hour format
+        if (predicted.hour === 0) {
+            predicted.hour = 12;
+        } else if (predicted.hour > 12) {
+            predicted.hour = predicted.hour - 12;
+        }
+    
+        // Update display
+        updateClockFromJSON(predicted, 'faceClock');
+    }
+
+// Update clock from JSON object
+function updateClockFromJSON(clockData, clockId) {
+    // Handle different possible field names - try multiple variations
+    // Firmware sends "hour" (singular), JavaScript expects "hours" (plural)
+    const hour = clockData.hour !== undefined ? clockData.hour : clockData.hours || clockData.Hour || clockData.Hours || 0;
+    const minutes = clockData.minutes !== undefined ? clockData.minutes : clockData.Minutes || clockData.minute || clockData.Minute || clockData.minuts || clockData.Minuts || 0;
+    const seconds = clockData.seconds !== undefined ? clockData.seconds : clockData.Seconds || clockData.second || clockData.Second || 0;
+    const milliseconds = clockData.milliseconds !== undefined ? clockData.milliseconds : clockData.Milliseconds || clockData.Millisecond || 0;
+    const microseconds = clockData.microseconds !== undefined ? clockData.microseconds : clockData.Microseconds || clockData.Microsecond || 0;
+    
+    // Convert to 12-hour format for analog clock display
+    let displayHour = hour;
+    if (displayHour === 0) {
+        displayHour = 12;
+    } else if (displayHour > 12) {
+        displayHour = displayHour - 12;
+    }
+    
+    const hours = String(displayHour).padStart(2, '0');
     const mins = String(minutes).padStart(2, '0');
     const secs = String(seconds).padStart(2, '0');
     const ms = String(milliseconds).padStart(3, '0');
     const us = String(microseconds).padStart(6, '0');
     
-    const timeDisplay = document.getElementById('timeDisplay');
+    const timeDisplay = document.getElementById(clockId || 'timeDisplay');
     const dateDisplay = document.getElementById('dateDisplay');
     
     if (timeDisplay) {
-        // Display format: HH:MM:SS.mmmmmm (milliseconds + microseconds combined)
-        // Only show the last 6 digits of the combined milliseconds+microseconds
-        const combined = String(milliseconds) + String(microseconds);
-        const displayTime = `${hours}:${mins}:${secs}.${combined.slice(-6)}`;
-        timeDisplay.textContent = displayTime;
+                // Display format: HH:MM:SS.mmm (milliseconds only, always 3 decimal places)
+                // Truncate to 3 decimal places
+                const msDisplay = String(milliseconds).slice(0, 3).padEnd(3, '0');
+                const displayTime = `${hours}:${mins}:${secs}.${msDisplay}`;
+                timeDisplay.textContent = displayTime;
         
-        // Hide loading text and show date when time is displayed
-        if (dateDisplay) {
+        // Hide loading text and show date when time is displayed (only for timeClock)
+        if (clockId === 'timeClock' && dateDisplay) {
             dateDisplay.textContent = '';
             dateDisplay.style.display = 'block';
         }
@@ -173,6 +343,25 @@ function sendSetTime(hours, minutes, seconds, milliseconds, microseconds) {
     }
 }
 
+// Send set clock face command to ESP32
+function sendSetClockFace(hours, minutes, seconds, milliseconds, microseconds) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = {
+            command: "setClockFace",
+            currentTime: {
+                hours: parseInt(hours),
+                minutes: parseInt(minutes),
+                seconds: parseInt(seconds),
+                milliseconds: parseInt(milliseconds),
+                microseconds: parseInt(microseconds)
+            }
+        };
+        ws.send(JSON.stringify(message));
+    } else {
+        alert("Not connected to ESP32. Please check WiFi settings.");
+    }
+}
+
 // Send page request to ESP32
 function sendPageRequest() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -203,6 +392,14 @@ window.onload = function() {
     setTimeout(sendPageRequest, 1000);
 };
 
+// Cleanup on page unload
+window.onbeforeunload = function() {
+    stopTimePrediction();
+    if (ws) {
+        ws.close();
+    }
+};
+
 // Open set time dialog
 function openSetTimeDialog() {
     const dialog = document.getElementById('setTimeDialog');
@@ -229,6 +426,34 @@ function confirmSetTime() {
     
     sendSetTime(hours, minutes, seconds, milliseconds, microseconds);
     closeSetTimeDialog();
+}
+
+// Open set clock face dialog
+function openSetClockFaceDialog() {
+    const dialog = document.getElementById('setClockFaceDialog');
+    if (dialog) {
+        dialog.style.display = 'flex';
+    }
+}
+
+// Close set clock face dialog
+function closeSetClockFaceDialog() {
+    const dialog = document.getElementById('setClockFaceDialog');
+    if (dialog) {
+        dialog.style.display = 'none';
+    }
+}
+
+// Confirm set clock face
+function confirmSetClockFace() {
+    const hours = document.getElementById('faceHours').value;
+    const minutes = document.getElementById('faceMinutes').value;
+    const seconds = document.getElementById('faceSeconds').value;
+    const milliseconds = document.getElementById('faceMilliseconds').value;
+    const microseconds = document.getElementById('faceMicroseconds').value;
+    
+    sendSetClockFace(hours, minutes, seconds, milliseconds, microseconds);
+    closeSetClockFaceDialog();
 }
 
 // Close dialog when clicking outside

@@ -10,7 +10,8 @@
         <p class="subtitle">Augmented Retro Clock Motor Driver</p>
         
         <div class="clock-display">
-            <div class="time" id="timeDisplay">--:--</div>
+            <div class="time" id="timeClock">--:--</div>
+            <div class="time face-clock" id="faceClock">--:--</div>
             <div class="date" id="dateDisplay">Loading...</div>
             <div class="status disconnected" id="statusDisplay">Disconnected</div>
         </div>
@@ -22,6 +23,7 @@
                 <button class="btn btn-slow" onclick="sendCommand('slow')">⏩ Slow Forward</button>
                 <button class="btn btn-stop" onclick="sendCommand('stop')">⏹ Stop</button>
                 <button class="btn btn-reset" onclick="sendCommand('reset')">↺ Reset</button>
+                <button class="btn" onclick="openSetClockFaceDialog()">⚙ Set Clock Face</button>
             </div>
             
             <div class="control-group">
@@ -37,7 +39,7 @@
                     <h3>⚙ Set Time</h3>
                     <div class="form-group">
                         <label for="setHours">Hours:</label>
-                        <input type="number" id="setHours" min="0" max="23" value="0">
+                        <input type="number" id="setHours" min="1" max="12" value="0">
                     </div>
                     <div class="form-group">
                         <label for="setMinutes">Minutes:</label>
@@ -53,11 +55,42 @@
                     </div>
                     <div class="form-group">
                         <label for="setMicroseconds">Microseconds:</label>
-                        <input type="number" id="setMicroseconds" min="0" max="999999" value="0">
+                        <input type="number" id="setMicroseconds" min="0" max="999" value="0">
                     </div>
                     <div class="dialog-buttons">
                         <button class="btn btn-primary" onclick="confirmSetTime()">Set Time</button>
                         <button class="btn" onclick="closeSetTimeDialog()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Set Clock Face Dialog -->
+            <div id="setClockFaceDialog" class="dialog" style="display: none;">
+                <div class="dialog-content">
+                    <h3>⚙ Set Clock Face</h3>
+                    <div class="form-group">
+                        <label for="faceHours">Hours:</label>
+                        <input type="number" id="faceHours" min="1" max="12" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="faceMinutes">Minutes:</label>
+                        <input type="number" id="faceMinutes" min="0" max="59" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="faceSeconds">Seconds:</label>
+                        <input type="number" id="faceSeconds" min="0" max="59" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="faceMilliseconds">Milliseconds:</label>
+                        <input type="number" id="faceMilliseconds" min="0" max="999" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="faceMicroseconds">Microseconds:</label>
+                        <input type="number" id="faceMicroseconds" min="0" max="999" value="0">
+                    </div>
+                    <div class="dialog-buttons">
+                        <button class="btn btn-primary" onclick="confirmSetClockFace()">Set Clock Face</button>
+                        <button class="btn" onclick="closeSetClockFaceDialog()">Cancel</button>
                     </div>
                 </div>
             </div>
