@@ -21,12 +21,11 @@ struct STEPPERVAR
 {
   int64_t nextStep = 10000000;
   int32_t stepTime = 4883;
-  int64_t doubleTime = 2000;
+  int64_t doubleTime = 2500; //Any smaller of a step time and the the clock face will desync from the expected time
   int64_t stepCount = 0;
 }stepvar;
 
 #define HOURS_PER_CYCLE 12
-#define FACE_SET_TIME_PERCENTAGE .98
 
 struct CLOCKO
 {
@@ -47,8 +46,7 @@ struct TIMEE
   int64_t elapsedUs = 0;
   int64_t dayUs = 0;
   int64_t usPerCycle = 0;
-  int64_t maxFaceSetTime = 0;
-  int64_t minFaceSetTime = 0;
+  int64_t waitSwitchoverPoint = 0;
   CLOCKO clock;
   CLOCKO uSPer;
 }timeO;
@@ -503,6 +501,22 @@ int64_t wrappedDifference(int64_t a, int64_t b, int64_t max) {
   return diff;
 }
 
+//Function for wrapped addition because math is hard
+int64_t wrappedAddition(int64_t a, int64_t b, int64_t max) {
+  int64_t sum = a + b;
+
+  if(abs(sum) > (max / 2)){
+    // Handle wrap-around
+    if (sum > 0) {
+      sum = sum - max;      // Positive: make it negative
+    } else {
+      sum = max + sum;     // Negative: subtract max from already negative value
+    }
+  }
+  
+  return sum;
+}
+
 #pragma endregion
 
 #pragma region Setup and main loop
@@ -534,32 +548,67 @@ void setup() {
   timeO.uSPer.milliseconds = 1000;
   timeO.uSPer.microseconds = 1;
 
-  //Clock Calculation Min and Max Face Set Time
-  timeO.maxFaceSetTime = float(timeO.usPerCycle) * FACE_SET_TIME_PERCENTAGE;
-  timeO.minFaceSetTime = float(timeO.usPerCycle) * (1 - FACE_SET_TIME_PERCENTAGE);
-
+  //Baked in calculation for figuring out at what point it is better to wait or go to double time
+  timeO.waitSwitchoverPoint = float(stepvar.doubleTime) / float(stepvar.stepTime) * float(timeO.usPerCycle);
+  timeO.waitSwitchoverPoint = wrappedAddition(timeO.waitSwitchoverPoint, 0, timeO.usPerCycle);
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
 void loop() {
   timeO.currentUs = esp_timer_get_time();
 
-  
-
   //Before all else, Make sure to tick the stepper
   if((stepvar.nextStep - timeO.currentUs) <= 0){
-    stepvar.stepCount++;
-    stepper.step();
+    int64_t diff = wrappedDifference(timeO.clockFaceUs, timeO.dayUs, timeO.usPerCycle);
 
     //This is a check that should super speed the clock face till it is close enough to the set time
-    if (abs(wrappedDifference(timeO.clockFaceUs, timeO.dayUs, timeO.usPerCycle)) <= 100000){
+    if (abs(diff) <= 100000){
+      //Step forward at regular rate
       stepvar.nextStep += stepvar.stepTime;
+      timeO.clockFaceUs += stepvar.stepTime;
+      //not a garentee step anymore
+      stepvar.stepCount++;
+      stepper.step();
     }
     else{
-      stepvar.nextStep += stepvar.doubleTime;
+
+      int64_t f1 = wrappedDifference(timeO.clockFaceUs, timeO.dayUs, timeO.usPerCycle);
+      //int64_t f2 = wrappedAddition(timeO.waitSwitchoverPoint, timeO.dayUs, timeO.usPerCycle);
+      int64_t f2 = timeO.waitSwitchoverPoint;
+      int64_t f3 = wrappedDifference(f2, f1, timeO.usPerCycle);
+
+      static int i = 1;
+      if (i >= 20){
+        Serial.print(diff);
+        
+        Serial.print(" --- ");
+        Serial.print(f1);
+        
+        Serial.print(" --- ");
+        Serial.print(f2);
+        
+        Serial.print(" --- ");
+        Serial.print(f3);
+        Serial.println();
+        i = 1;
+      }
+      else {
+        i++;
+      }
+      if(diff < 0){
+        //Step forward at double rate
+        stepvar.nextStep += stepvar.doubleTime;
+        timeO.clockFaceUs += stepvar.stepTime;
+        stepvar.stepCount++;
+        stepper.step();
+      }
+      else{
+        //Hold the step
+        stepvar.nextStep += stepvar.doubleTime;
+      }
     }
 
-    timeO.clockFaceUs += stepvar.stepTime;
+    
   }
   else{
     //Upgrades people! Upgrades!!! ＼(｀0´)／
