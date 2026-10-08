@@ -46,7 +46,6 @@ struct TIMEE
   int64_t elapsedUs = 0;
   int64_t dayUs = 0;
   int64_t usPerCycle = 0;
-  int64_t waitSwitchoverPoint = 0;
   CLOCKO clock;
   CLOCKO uSPer;
 }timeO;
@@ -501,22 +500,6 @@ int64_t wrappedDifference(int64_t a, int64_t b, int64_t max) {
   return diff;
 }
 
-//Function for wrapped addition because math is hard
-int64_t wrappedAddition(int64_t a, int64_t b, int64_t max) {
-  int64_t sum = a + b;
-
-  if(abs(sum) > (max / 2)){
-    // Handle wrap-around
-    if (sum > 0) {
-      sum = sum - max;      // Positive: make it negative
-    } else {
-      sum = max + sum;     // Negative: subtract max from already negative value
-    }
-  }
-  
-  return sum;
-}
-
 #pragma endregion
 
 #pragma region Setup and main loop
@@ -547,10 +530,6 @@ void setup() {
   timeO.uSPer.seconds = 1000 * 1000;
   timeO.uSPer.milliseconds = 1000;
   timeO.uSPer.microseconds = 1;
-
-  //Baked in calculation for figuring out at what point it is better to wait or go to double time
-  timeO.waitSwitchoverPoint = float(stepvar.doubleTime) / float(stepvar.stepTime) * float(timeO.usPerCycle);
-  timeO.waitSwitchoverPoint = wrappedAddition(timeO.waitSwitchoverPoint, 0, timeO.usPerCycle);
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
@@ -571,30 +550,7 @@ void loop() {
       stepper.step();
     }
     else{
-
-      int64_t f1 = wrappedDifference(timeO.clockFaceUs, timeO.dayUs, timeO.usPerCycle);
-      //int64_t f2 = wrappedAddition(timeO.waitSwitchoverPoint, timeO.dayUs, timeO.usPerCycle);
-      int64_t f2 = timeO.waitSwitchoverPoint;
-      int64_t f3 = wrappedDifference(f2, f1, timeO.usPerCycle);
-
-      static int i = 1;
-      if (i >= 20){
-        Serial.print(diff);
-        
-        Serial.print(" --- ");
-        Serial.print(f1);
-        
-        Serial.print(" --- ");
-        Serial.print(f2);
-        
-        Serial.print(" --- ");
-        Serial.print(f3);
-        Serial.println();
-        i = 1;
-      }
-      else {
-        i++;
-      }
+      //make the clock take the shortest path to match the real time
       if(diff < 0){
         //Step forward at double rate
         stepvar.nextStep += stepvar.doubleTime;
@@ -607,7 +563,6 @@ void loop() {
         stepvar.nextStep += stepvar.doubleTime;
       }
     }
-
     
   }
   else{
