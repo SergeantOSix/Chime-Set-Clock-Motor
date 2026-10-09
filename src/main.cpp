@@ -22,6 +22,7 @@ struct STEPPERVAR
   int64_t nextStep = 10000000;
   int32_t stepTime = 4883;
   int64_t doubleTime = 2500; //Any smaller of a step time and the the clock face will desync from the expected time
+  double doubleTimeRate = 0;
   int64_t stepCount = 0;
 }stepvar;
 
@@ -34,6 +35,7 @@ struct CLOCKO
   int64_t seconds = 0;
   int64_t milliseconds = 0;
   int64_t microseconds = 0;
+  double rate = 1;
 };
 
 struct TIMEE
@@ -46,6 +48,7 @@ struct TIMEE
   int64_t elapsedUs = 0;
   int64_t dayUs = 0;
   int64_t usPerCycle = 0;
+  double faceRate = 1;
   CLOCKO clock;
   CLOCKO uSPer;
 }timeO;
@@ -223,7 +226,10 @@ bool WiFiAPMode(){
 void HTML_HomeSendOnLoad(){
   DynamicJsonDocument jsonDoc(1024);
   jsonDoc["timeClock"] = BuildTimeJason(timeO.clock);
-  jsonDoc["faceClock"] = BuildTimeJason(CalculateClock(timeO.clockFaceUs));
+  //the clock face doesn't have a CLOCKO type and I need rate to be sent with the clock face
+  CLOCKO ttt = CalculateClock(timeO.clockFaceUs);
+  ttt.rate = timeO.faceRate;
+  jsonDoc["faceClock"] = BuildTimeJason(ttt);
   char SendBuf[512];
   serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
   Serial.println(SendBuf);
@@ -442,6 +448,7 @@ DynamicJsonDocument BuildTimeJason(CLOCKO foop){
   jsonDoc["seconds"] = foop.seconds;
   jsonDoc["milliseconds"] = foop.milliseconds;
   jsonDoc["microseconds"] = foop.microseconds;
+  jsonDoc["rate"] = foop.rate;
   return jsonDoc;
 }
 
@@ -530,6 +537,9 @@ void setup() {
   timeO.uSPer.seconds = 1000 * 1000;
   timeO.uSPer.milliseconds = 1000;
   timeO.uSPer.microseconds = 1;
+
+  //precalculation of the double time rate
+  stepvar.doubleTimeRate = double(stepvar.stepTime) / double(stepvar.doubleTime);
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
@@ -540,11 +550,22 @@ void loop() {
   if((stepvar.nextStep - timeO.currentUs) <= 0){
     int64_t diff = wrappedDifference(timeO.clockFaceUs, timeO.dayUs, timeO.usPerCycle);
 
+    //Debug Code
+    // static int i = 1;
+    // if (i <= 20){
+    //   Serial.println(diff);
+    //   i++;
+    // }
+    // else{
+    //   i = 1;
+    // }
+
     //This is a check that should super speed the clock face till it is close enough to the set time
     if (abs(diff) <= 100000){
       //Step forward at regular rate
       stepvar.nextStep += stepvar.stepTime;
       timeO.clockFaceUs += stepvar.stepTime;
+      timeO.faceRate = 1;
       //not a garentee step anymore
       stepvar.stepCount++;
       stepper.step();
@@ -555,12 +576,14 @@ void loop() {
         //Step forward at double rate
         stepvar.nextStep += stepvar.doubleTime;
         timeO.clockFaceUs += stepvar.stepTime;
+        timeO.faceRate = stepvar.doubleTimeRate;
         stepvar.stepCount++;
         stepper.step();
       }
       else{
         //Hold the step
         stepvar.nextStep += stepvar.doubleTime;
+        timeO.faceRate = 0;
       }
     }
     
@@ -600,7 +623,10 @@ void loop() {
       wpd.nextPageUpdate += wpd.pageUpdateTime;
       DynamicJsonDocument jsonDoc(1024);
       jsonDoc["timeClock"] = BuildTimeJason(timeO.clock);
-      jsonDoc["faceClock"] = BuildTimeJason(CalculateClock(timeO.clockFaceUs));
+      //the clock face doesn't have a CLOCKO type and I need rate to be sent with the clock face
+      CLOCKO ttt = CalculateClock(timeO.clockFaceUs);
+      ttt.rate = timeO.faceRate;
+      jsonDoc["faceClock"] = BuildTimeJason(ttt);
       char SendBuf[512];
       serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
       //Serial.println(SendBuf);

@@ -10,6 +10,7 @@ let lastTimeValues = null;
 let faceClockLastUpdateTime = null;
 let faceClockLastTimeValues = null;
 let timePredictionInterval = null;
+let clockRate = 1; // Default rate multiplier
 
 // Connect to WebSocket
 function connectWebSocket() {
@@ -57,6 +58,9 @@ function connectWebSocket() {
 
 // Handle incoming messages
 function handleMessage(data) {
+    //Debug code
+    //console.log("Raw message received:", data);
+
     // Handle new protocol format with timeClock and faceClock objects
     if ("timeClock" in data || "faceClock" in data) {
         handleNewProtocol(data);
@@ -94,31 +98,35 @@ function handleNewProtocol(data) {
     const faceClockData = data.faceClock || data.FaceClock;
     
     if (timeClockData) {
-        updateClockFromJSON(timeClockData, 'timeClock');
-        // Store last update time and values for prediction
-        lastUpdateTime = new Date();
-        lastTimeValues = {
-                hour: timeClockData.hour,
-            minutes: timeClockData.minutes,
-            seconds: timeClockData.seconds,
-            milliseconds: timeClockData.milliseconds,
-            microseconds: timeClockData.microseconds
-        };
-    }
+                updateClockFromJSON(timeClockData, 'timeClock');
+                // Store last update time and values for prediction
+                lastUpdateTime = new Date();
+                lastTimeValues = {
+                    hour: timeClockData.hour,
+                    minutes: timeClockData.minutes,
+                    seconds: timeClockData.seconds,
+                    milliseconds: timeClockData.milliseconds,
+                    microseconds: timeClockData.microseconds,
+                    rate: timeClockData.rate !== undefined ? timeClockData.rate : 1
+                };
+                // DEBUG: console.log('TimeClock updated - Rate:', lastTimeValues.rate);
+            }
     
-    if (faceClockData) {
-        updateClockFromJSON(faceClockData, 'faceClock');
-            // Store separate last update time and values for faceClock prediction
-            faceClockLastUpdateTime = new Date();
-            faceClockLastTimeValues = {
-                hour: faceClockData.hour,
-                minutes: faceClockData.minutes,
-                seconds: faceClockData.seconds,
-                milliseconds: faceClockData.milliseconds,
-                microseconds: faceClockData.microseconds
-            };
+        if (faceClockData) {
+                updateClockFromJSON(faceClockData, 'faceClock');
+                // Store separate last update time and values for faceClock prediction
+                faceClockLastUpdateTime = new Date();
+                faceClockLastTimeValues = {
+                    hour: faceClockData.hour,
+                    minutes: faceClockData.minutes,
+                    seconds: faceClockData.seconds,
+                    milliseconds: faceClockData.milliseconds,
+                    microseconds: faceClockData.microseconds,
+                    rate: faceClockData.rate !== undefined ? faceClockData.rate : 1
+                };
+                // DEBUG: console.log('FaceClock updated - Rate:', faceClockLastTimeValues.rate);
+            }
         }
-    }
 
 // Start time prediction interval
 function startTimePrediction() {
@@ -127,10 +135,11 @@ function startTimePrediction() {
     }
     
     timePredictionInterval = setInterval(function() {
-        if (isConnected && lastTimeValues) {
+        // Only update if rate is not zero
+        if (isConnected && lastTimeValues && lastTimeValues.rate !== 0) {
             updatePredictedClock();
         }
-        if (isConnected && faceClockLastTimeValues) {
+        if (isConnected && faceClockLastTimeValues && faceClockLastTimeValues.rate !== 0) {
             updatePredictedFaceClock();
         }
     }, 50); // Update every 50ms
@@ -148,20 +157,23 @@ function stopTimePrediction() {
 function updatePredictedClock() {
     if (!lastTimeValues) return;
     
-    const now = new Date();
-    const elapsedMs = now.getTime() - lastUpdateTime.getTime();
+    // If rate is zero, don't update the clock (it's frozen)
+    if (lastTimeValues.rate === 0) return;
     
-    // Calculate predicted time based on elapsed time
+    const now = new Date();
+    const elapsedMs = (now.getTime() - lastUpdateTime.getTime()) * lastTimeValues.rate;
+    
+    // Calculate predicted time based on elapsed time with rate multiplier
     const predicted = {
         hour: lastTimeValues.hour,
         minutes: lastTimeValues.minutes,
         seconds: lastTimeValues.seconds,
-            milliseconds: elapsedMs % 1000, // Use raw elapsed milliseconds
+        milliseconds: Math.floor(elapsedMs % 1000),
         microseconds: 0   // Don't predict microseconds
     };
     
     // Calculate total elapsed seconds (use integer division to avoid floating point issues)
-        const totalSeconds = Math.floor(elapsedMs / 1000);
+    const totalSeconds = Math.floor(elapsedMs / 1000);
     
     // Add elapsed seconds to current time
     let newSeconds = predicted.seconds + totalSeconds;
@@ -172,65 +184,68 @@ function updatePredictedClock() {
     // Handle minute rollover
     carry = Math.floor(predicted.minutes / 60);
     predicted.minutes = predicted.minutes % 60;
-        predicted.hour += carry;
+    predicted.hour += carry;
     
-        // Handle hour rollover (12-hour format for analog clock)
-        carry = Math.floor(predicted.hour / 24);
-        predicted.hour = predicted.hour % 24;
-        // Convert to 12-hour format
-        if (predicted.hour === 0) {
-            predicted.hour = 12;
-        } else if (predicted.hour > 12) {
-            predicted.hour = predicted.hour - 12;
-        }
-    
-        // Update display
-        updateClockFromJSON(predicted, 'timeClock');
+    // Handle hour rollover (12-hour format for analog clock)
+    carry = Math.floor(predicted.hour / 24);
+    predicted.hour = predicted.hour % 24;
+    // Convert to 12-hour format
+    if (predicted.hour === 0) {
+        predicted.hour = 12;
+    } else if (predicted.hour > 12) {
+        predicted.hour = predicted.hour - 12;
     }
+    
+    // Update display
+    updateClockFromJSON(predicted, 'timeClock');
+}
 
-    // Update predicted face clock based on last known values
-    function updatePredictedFaceClock() {
-        if (!faceClockLastTimeValues) return;
+// Update predicted face clock based on last known values
+function updatePredictedFaceClock() {
+    if (!faceClockLastTimeValues) return;
     
-        const now = new Date();
-        const elapsedMs = now.getTime() - faceClockLastUpdateTime.getTime();
+    // If rate is zero, don't update the clock (it's frozen)
+    if (faceClockLastTimeValues.rate === 0) return;
     
-        // Calculate predicted time based on elapsed time
-        const predicted = {
-            hour: faceClockLastTimeValues.hour,
-            minutes: faceClockLastTimeValues.minutes,
-            seconds: faceClockLastTimeValues.seconds,
-            milliseconds: elapsedMs % 1000, // Use raw elapsed milliseconds
-            microseconds: 0   // Don't predict microseconds
-        };
+    const now = new Date();
+    const elapsedMs = (now.getTime() - faceClockLastUpdateTime.getTime()) * faceClockLastTimeValues.rate;
     
-        // Calculate total elapsed seconds (use integer division to avoid floating point issues)
-        const totalSeconds = Math.floor(elapsedMs / 1000);
+    // Calculate predicted time based on elapsed time with rate multiplier
+    const predicted = {
+        hour: faceClockLastTimeValues.hour,
+        minutes: faceClockLastTimeValues.minutes,
+        seconds: faceClockLastTimeValues.seconds,
+        milliseconds: Math.floor(elapsedMs % 1000),
+        microseconds: 0   // Don't predict microseconds
+    };
     
-        // Add elapsed seconds to current time
-        let newSeconds = predicted.seconds + totalSeconds;
-        let carry = Math.floor(newSeconds / 60);
-        predicted.seconds = newSeconds % 60;
-        predicted.minutes += carry;
+    // Calculate total elapsed seconds (use integer division to avoid floating point issues)
+    const totalSeconds = Math.floor(elapsedMs / 1000);
     
-        // Handle minute rollover
-        carry = Math.floor(predicted.minutes / 60);
-        predicted.minutes = predicted.minutes % 60;
-        predicted.hour += carry;
+    // Add elapsed seconds to current time
+    let newSeconds = predicted.seconds + totalSeconds;
+    let carry = Math.floor(newSeconds / 60);
+    predicted.seconds = newSeconds % 60;
+    predicted.minutes += carry;
     
-        // Handle hour rollover (12-hour format for analog clock)
-        carry = Math.floor(predicted.hour / 24);
-        predicted.hour = predicted.hour % 24;
-        // Convert to 12-hour format
-        if (predicted.hour === 0) {
-            predicted.hour = 12;
-        } else if (predicted.hour > 12) {
-            predicted.hour = predicted.hour - 12;
-        }
+    // Handle minute rollover
+    carry = Math.floor(predicted.minutes / 60);
+    predicted.minutes = predicted.minutes % 60;
+    predicted.hour += carry;
     
-        // Update display
-        updateClockFromJSON(predicted, 'faceClock');
+    // Handle hour rollover (12-hour format for analog clock)
+    carry = Math.floor(predicted.hour / 24);
+    predicted.hour = predicted.hour % 24;
+    // Convert to 12-hour format
+    if (predicted.hour === 0) {
+        predicted.hour = 12;
+    } else if (predicted.hour > 12) {
+        predicted.hour = predicted.hour - 12;
     }
+    
+    // Update display
+    updateClockFromJSON(predicted, 'faceClock');
+}
 
 // Update clock from JSON object
 function updateClockFromJSON(clockData, clockId) {
@@ -260,11 +275,11 @@ function updateClockFromJSON(clockData, clockId) {
     const dateDisplay = document.getElementById('dateDisplay');
     
     if (timeDisplay) {
-                // Display format: HH:MM:SS.mmm (milliseconds only, always 3 decimal places)
-                // Truncate to 3 decimal places
-                const msDisplay = String(milliseconds).slice(0, 3).padEnd(3, '0');
-                const displayTime = `${hours}:${mins}:${secs}.${msDisplay}`;
-                timeDisplay.textContent = displayTime;
+        // Display format: HH:MM:SS.mmm (milliseconds only, always 3 decimal places)
+        // Truncate to 3 decimal places
+        const msDisplay = String(milliseconds).slice(0, 3).padEnd(3, '0');
+        const displayTime = `${hours}:${mins}:${secs}.${msDisplay}`;
+        timeDisplay.textContent = displayTime;
         
         // Hide loading text and show date when time is displayed (only for timeClock)
         if (clockId === 'timeClock' && dateDisplay) {
