@@ -33,6 +33,47 @@
                 <button class="btn" onclick="openSetTimeDialog()">⚙ Set Time</button>
             </div>
             
+            <div class="control-group">
+                <h3>🌍 Timezone & Mode</h3>
+                <div class="form-group">
+                    <label for="timezoneSelect">Timezone:</label>
+                    <select id="timezoneSelect" onchange="updateTimezone()">
+                        <option value="UTC0" selected>UTC</option>
+                        <option value="UTC-12">UTC-12</option>
+                        <option value="UTC-11">UTC-11</option>
+                        <option value="UTC-10">UTC-10</option>
+                        <option value="UTC-9">UTC-9</option>
+                        <option value="UTC-8">UTC-8 (Pacific)</option>
+                        <option value="UTC-7">UTC-7 (Mountain)</option>
+                        <option value="UTC-6">UTC-6 (Central)</option>
+                        <option value="UTC-5">UTC-5 (Eastern)</option>
+                        <option value="UTC-4">UTC-4</option>
+                        <option value="UTC-3">UTC-3</option>
+                        <option value="UTC-2">UTC-2</option>
+                        <option value="UTC-1">UTC-1</option>
+                        <option value="UTC+1">UTC+1</option>
+                        <option value="UTC+2">UTC+2</option>
+                        <option value="UTC+3">UTC+3</option>
+                        <option value="UTC+4">UTC+4</option>
+                        <option value="UTC+5">UTC+5</option>
+                        <option value="UTC+6">UTC+6</option>
+                        <option value="UTC+7">UTC+7</option>
+                        <option value="UTC+8">UTC+8 (China/Japan)</option>
+                        <option value="UTC+9">UTC+9</option>
+                        <option value="UTC+10">UTC+10</option>
+                        <option value="UTC+11">UTC+11</option>
+                        <option value="UTC+12">UTC+12</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Time Mode:</label>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="autoTimeMode" onchange="updateTimeMode()">
+                        <label for="autoTimeMode">Automatic</label>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Set Time Dialog -->
             <div id="setTimeDialog" class="dialog" style="display: none;">
                 <div class="dialog-content">

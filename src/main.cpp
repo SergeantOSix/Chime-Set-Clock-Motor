@@ -10,6 +10,7 @@
 #include <ESPmDNS.h>
 #include <DNSServer.h>
 #include "esp_ota_ops.h"
+#include <time.h>
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -27,6 +28,7 @@ struct STEPPERVAR
 }stepvar;
 
 #define HOURS_PER_CYCLE 12
+const char* NTP_SERVER = "pool.ntp.org";
 
 struct CLOCKO
 {
@@ -42,6 +44,7 @@ struct TIMEE
 {
   int64_t nextCalculation = 0;
   int64_t calculationTime = 10000;
+  int timeReqiestIndex = 1;
   int64_t currentUs = 0;
   int64_t clockFaceUs = 0;
   int64_t timeOffset = 0;
@@ -51,6 +54,9 @@ struct TIMEE
   double faceRate = 1;
   CLOCKO clock;
   CLOCKO uSPer;
+  CLOCKO internationalTime;
+  int timeZoneOffset = 0;
+  bool autoTime = false;
 }timeO;
 
 void SetTime(CLOCKO tt);
@@ -82,6 +88,8 @@ void LoadSettings(){
   prefs.begin("Settings");
   clockSettings.passward = prefs.getString("wifip", clockSettings.passward);
   clockSettings.ssid = prefs.getString("wifin", clockSettings.ssid);
+  timeO.autoTime = prefs.getBool("am", timeO.autoTime);
+  timeO.timeZoneOffset = prefs.getInt("wifin", timeO.timeZoneOffset);
   prefs.end();
   Serial.println("\nSettings Loaded from Prefrences\n");
 }
@@ -91,6 +99,8 @@ void SaveSettings(){
   prefs.begin("Settings", false);
   prefs.putString("wifip", clockSettings.passward);
   prefs.putString("wifin", clockSettings.ssid);
+  prefs.putBool("am", timeO.autoTime);
+  prefs.putInt("wifin", timeO.timeZoneOffset);
   prefs.end();
   Serial.println("\nSettings saved to Prefrences\n");
 }
@@ -230,6 +240,8 @@ void HTML_HomeSendOnLoad(){
   CLOCKO ttt = CalculateClock(timeO.clockFaceUs);
   ttt.rate = timeO.faceRate;
   jsonDoc["faceClock"] = BuildTimeJason(ttt);
+  jsonDoc["autoMode"] = timeO.autoTime;
+  jsonDoc["timezone"] = "UTC" + String(timeO.timeZoneOffset);
   char SendBuf[512];
   serializeJson(jsonDoc, SendBuf, sizeof(SendBuf));
   Serial.println(SendBuf);
@@ -295,7 +307,7 @@ void jsonDealings(String command_){
         SetTime(ClockDecoder(t1m3));
       }
     }
-    if((command == "setClockFace")){
+    else if((command == "setClockFace")){
       if(jsonDoc.containsKey("currentTime")){
         DynamicJsonDocument t1m3(256);
         String wapwap = jsonDoc["currentTime"];
@@ -306,6 +318,27 @@ void jsonDealings(String command_){
           return;
         }
         timeO.clockFaceUs = CalculateUs(ClockDecoder(t1m3));
+      }
+    }
+    else if((command == "setTimeMode")){
+      if(jsonDoc.containsKey("autoMode")){
+        DynamicJsonDocument t1m3(256);
+        bool wapwap = jsonDoc["autoMode"];
+        //Serial.println(wapwap);
+        timeO.autoTime = wapwap;
+        SaveSettings();
+      }
+    }
+    else if((command == "setTimezone")){
+      if(jsonDoc.containsKey("timezone")){
+        DynamicJsonDocument t1m3(256);
+        String wapwap = jsonDoc["timezone"];
+        //Serial.println(wapwap);
+        wapwap = wapwap.substring(wapwap.indexOf("UTC") + 3);
+        //Serial.println(wapwap);
+        timeO.timeZoneOffset = wapwap.toInt();
+        //Serial.println(wapwap);
+        SaveSettings();
       }
     }
   }
@@ -540,6 +573,9 @@ void setup() {
 
   //precalculation of the double time rate
   stepvar.doubleTimeRate = double(stepvar.stepTime) / double(stepvar.doubleTime);
+
+  configTime(0, 0, NTP_SERVER);
+
 }
 
 //Non blocking main loop any functions held within this loop must also be non blocking
@@ -616,6 +652,56 @@ void loop() {
 
       timeO.clock.microseconds = remainder / timeO.uSPer.microseconds;
       remainder = remainder % timeO.uSPer.microseconds;
+
+      //This is for calling the international servers for the current time
+      if(timeO.autoTime){
+        if(timeO.timeReqiestIndex >= 1000){
+          timeO.timeReqiestIndex = 1;
+          time_t now = time(nullptr);
+          //Serial.println(now);
+
+          // Validate time response
+          if (now == 0 || now < 946684800) {
+            // Time sync not available yet
+            Serial.println("Time sync pending");
+            return;
+          }
+          else{
+            //Transfer good time data to a local format
+            struct tm timeinfo;
+            time(&now);
+            Serial.println(now);
+            localtime_r(&now, &timeinfo);
+
+            //Get seconds for today base off of international time
+            int64_t megaSec = now + (3600 * timeO.timeZoneOffset) - 3600; //I don't know why but i'm getting an extra hour somehow
+            Serial.println(megaSec);
+            megaSec = megaSec % (3600*12);
+            Serial.println(megaSec);
+
+            timeO.internationalTime.hours = megaSec / 3600;
+            megaSec = megaSec % 3600;
+
+            timeO.internationalTime.minutes = megaSec / 60;
+            megaSec = megaSec % 60;
+
+            timeO.internationalTime.seconds = megaSec / 1;
+            megaSec = megaSec % 1;
+
+            //timeO.timeOffset = wrappedDifference(CalculateUs(timeO.internationalTime), (0 - int64_t(3600000000) * timeO.timeOffset), timeO.usPerCycle);
+            SetTime(timeO.internationalTime);
+            Serial.print("Time: ");
+            Serial.print(timeO.internationalTime.hours);
+            Serial.print(":");
+            Serial.print(timeO.internationalTime.minutes);
+            Serial.print(":");
+            Serial.print(timeO.internationalTime.seconds);
+          }
+        }
+        else{
+          timeO.timeReqiestIndex ++;
+        }
+      }
     }
 
     //page update call Currently just sends the clock every second

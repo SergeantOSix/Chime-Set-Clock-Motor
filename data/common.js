@@ -98,35 +98,45 @@ function handleNewProtocol(data) {
     const faceClockData = data.faceClock || data.FaceClock;
     
     if (timeClockData) {
-                updateClockFromJSON(timeClockData, 'timeClock');
-                // Store last update time and values for prediction
-                lastUpdateTime = new Date();
-                lastTimeValues = {
-                    hour: timeClockData.hour,
-                    minutes: timeClockData.minutes,
-                    seconds: timeClockData.seconds,
-                    milliseconds: timeClockData.milliseconds,
-                    microseconds: timeClockData.microseconds,
-                    rate: timeClockData.rate !== undefined ? timeClockData.rate : 1
-                };
-                // DEBUG: console.log('TimeClock updated - Rate:', lastTimeValues.rate);
-            }
+        updateClockFromJSON(timeClockData, 'timeClock');
+        // Store last update time and values for prediction
+        lastUpdateTime = new Date();
+        lastTimeValues = {
+            hour: timeClockData.hour,
+            minutes: timeClockData.minutes,
+            seconds: timeClockData.seconds,
+            milliseconds: timeClockData.milliseconds,
+            microseconds: timeClockData.microseconds,
+            rate: timeClockData.rate !== undefined ? timeClockData.rate : 1
+        };
+        // DEBUG: console.log('TimeClock updated - Rate:', lastTimeValues.rate);
+    }
     
-        if (faceClockData) {
-                updateClockFromJSON(faceClockData, 'faceClock');
-                // Store separate last update time and values for faceClock prediction
-                faceClockLastUpdateTime = new Date();
-                faceClockLastTimeValues = {
-                    hour: faceClockData.hour,
-                    minutes: faceClockData.minutes,
-                    seconds: faceClockData.seconds,
-                    milliseconds: faceClockData.milliseconds,
-                    microseconds: faceClockData.microseconds,
-                    rate: faceClockData.rate !== undefined ? faceClockData.rate : 1
-                };
-                // DEBUG: console.log('FaceClock updated - Rate:', faceClockLastTimeValues.rate);
-            }
+    if (faceClockData) {
+        updateClockFromJSON(faceClockData, 'faceClock');
+        // Store separate last update time and values for faceClock prediction
+        faceClockLastUpdateTime = new Date();
+        faceClockLastTimeValues = {
+            hour: faceClockData.hour,
+            minutes: faceClockData.minutes,
+            seconds: faceClockData.seconds,
+            milliseconds: faceClockData.milliseconds,
+            microseconds: faceClockData.microseconds,
+            rate: faceClockData.rate !== undefined ? faceClockData.rate : 1
+        };
+        // DEBUG: console.log('FaceClock updated - Rate:', faceClockLastTimeValues.rate);
+    }
+    
+    // Update timezone and time mode from backend
+    if (data.timezone) {
+            console.log('Received timezone from backend:', data.timezone);
+            updateSettingsFromBackend(data.timezone, data.autoMode);
         }
+        if (data.autoMode !== undefined) {
+            console.log('Received autoMode from backend:', data.autoMode);
+            updateSettingsFromBackend(null, data.autoMode);
+        }
+    }
 
 // Start time prediction interval
 function startTimePrediction() {
@@ -469,6 +479,59 @@ function confirmSetClockFace() {
     
     sendSetClockFace(hours, minutes, seconds, milliseconds, microseconds);
     closeSetClockFaceDialog();
+}
+
+// Update timezone (manual selection only)
+function updateTimezone() {
+    const timezone = document.getElementById('timezoneSelect').value;
+    
+    const message = {
+        command: "setTimezone",
+        timezone: timezone
+    };
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(message));
+    } else {
+        alert("Not connected to ESP32. Please check WiFi settings.");
+    }
+}
+
+// Update time mode (automatic/manual)
+function updateTimeMode() {
+    const autoMode = document.getElementById('autoTimeMode').checked;
+    
+    const message = {
+        command: "setTimeMode",
+        autoMode: autoMode
+    };
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(message));
+    } else {
+        alert("Not connected to ESP32. Please check WiFi settings.");
+    }
+}
+
+// Update settings from backend (timezone and auto mode)
+function updateSettingsFromBackend(timezone, autoMode) {
+    // Update timezone dropdown
+    const timezoneSelect = document.getElementById('timezoneSelect');
+    if (timezoneSelect) {
+        // Find and select the matching timezone option
+        for (let i = 0; i < timezoneSelect.options.length; i++) {
+            if (timezoneSelect.options[i].value === timezone) {
+                timezoneSelect.selectedIndex = i;
+                break;
+            }
+        }
+    }
+    
+    // Update time mode checkbox
+    const autoTimeMode = document.getElementById('autoTimeMode');
+    if (autoTimeMode) {
+        autoTimeMode.checked = autoMode === true || autoMode === "true" || autoMode === 1;
+    }
 }
 
 // Close dialog when clicking outside

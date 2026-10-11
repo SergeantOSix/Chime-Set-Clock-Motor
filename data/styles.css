@@ -296,6 +296,51 @@ h1 {
     box-shadow: 0 0 10px #00ff88;
 }
 
+.form-group select {
+    width: 100%;
+    padding: 10px;
+    background: #0f3460;
+    border: 1px solid #00ff88;
+    border-radius: 5px;
+    color: #00ff88;
+    font-size: 16px;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+.form-group select:focus {
+    outline: none;
+    box-shadow: 0 0 10px #00ff88;
+}
+
+.toggle-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-switch input[type="checkbox"] {
+    display: none;
+}
+
+.toggle-switch label {
+    color: #00ff88;
+    cursor: pointer;
+    padding: 8px 16px;
+    border: 2px solid #00ff88;
+    border-radius: 20px;
+    transition: all 0.3s ease;
+    background: rgba(0, 255, 136, 0.1);
+}
+
+.toggle-switch input[type="checkbox"]:checked + label {
+    background: #00ff88;
+    color: #1a1a2e;
+    box-shadow: 0 0 10px #00ff88;
+}
+
 .dialog-buttons {
     display: flex;
     gap: 10px;
